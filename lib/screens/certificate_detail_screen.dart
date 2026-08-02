@@ -22,11 +22,13 @@ class CertificateDetailScreen extends StatefulWidget {
 class _CertificateDetailScreenState extends State<CertificateDetailScreen> {
   CertificateModel? _certificate;
   bool _loading = true;
+  bool _editing = false;
 
   final _principalController = TextEditingController();
   final _rateController = TextEditingController();
   DateTime? _openedDate;
   DateTime? _maturityDate;
+  int _frequencyMonths = 1;
 
   List<AccountModel> _bankAccounts = [];
   AccountModel? _selectedDepositAccount;
@@ -64,6 +66,40 @@ class _CertificateDetailScreenState extends State<CertificateDetailScreen> {
     });
   }
 
+  DateTime _calculateNextInterestDate(
+      DateTime openedDate, int frequencyMonths) {
+    final today = DateTime.now();
+    DateTime next = DateTime(
+        openedDate.year, openedDate.month + frequencyMonths, openedDate.day);
+    while (!next.isAfter(today)) {
+      next = DateTime(
+          next.year, next.month + frequencyMonths, next.day);
+    }
+    return next;
+  }
+
+  void _startEdit() {
+    final cert = _certificate!;
+    _principalController.text = cert.principal.toString();
+    _rateController.text = (cert.interestRate * 100).toStringAsFixed(2);
+    _openedDate = DateTime.parse(cert.openedDate);
+    _maturityDate = DateTime.parse(cert.maturityDate);
+    _frequencyMonths = cert.frequencyMonths;
+    if (_isElAhly) {
+      for (final a in _bankAccounts) {
+        if (a.id == cert.depositAccountId) {
+          _selectedDepositAccount = a;
+          break;
+        }
+      }
+    }
+    setState(() => _editing = true);
+  }
+
+  void _cancelEdit() {
+    setState(() => _editing = false);
+  }
+
   Future<void> _saveCertificate() async {
     final principal = double.tryParse(_principalController.text.trim());
     final rate = double.tryParse(_rateController.text.trim());
@@ -84,19 +120,12 @@ class _CertificateDetailScreenState extends State<CertificateDetailScreen> {
     final depositAccountId =
         _isElAhly ? _selectedDepositAccount!.id! : widget.account.id!;
 
-    DateTime calculateNextInterestDate(DateTime openedDate) {
-      final today = DateTime.now();
-      DateTime next = DateTime(
-          openedDate.year, openedDate.month + 1, openedDate.day);
-      while (!next.isAfter(today)) {
-        next = DateTime(next.year, next.month + 1, next.day);
-      }
-      return next;
-    }
-
-    final nextInterest = calculateNextInterestDate(_openedDate!);
+    final nextInterest =
+        _calculateNextInterestDate(_openedDate!, _frequencyMonths);
+    final isMatured = nextInterest.isAfter(_maturityDate!);
 
     final cert = CertificateModel(
+      id: _certificate?.id,
       accountId: widget.account.id!,
       depositAccountId: depositAccountId,
       principal: principal,
@@ -104,13 +133,30 @@ class _CertificateDetailScreenState extends State<CertificateDetailScreen> {
       openedDate: _openedDate!.toIso8601String().substring(0, 10),
       maturityDate: _maturityDate!.toIso8601String().substring(0, 10),
       nextInterestDate: nextInterest.toIso8601String().substring(0, 10),
-      frequencyMonths: 1,
+      frequencyMonths: _frequencyMonths,
+      isMatured: isMatured,
     );
 
-    await DatabaseHelper.instance.insertCertificate(cert);
-    await DatabaseHelper.instance
-        .updateAccountBalance(widget.account.id!, principal);
+    if (_certificate == null) {
+      await DatabaseHelper.instance.insertCertificate(cert);
+      await DatabaseHelper.instance
+          .updateAccountBalance(widget.account.id!, principal);
+    } else {
+      // Preserve any interest that has already accrued into the balance —
+      // only shift the balance by how much the principal itself changed.
+      final principalDelta = principal - _certificate!.principal;
+      await DatabaseHelper.instance.updateCertificate(cert);
+      if (principalDelta != 0) {
+        final account =
+            await DatabaseHelper.instance.getAccountById(widget.account.id!);
+        if (account != null) {
+          await DatabaseHelper.instance.updateAccountBalance(
+              widget.account.id!, account.balance + principalDelta);
+        }
+      }
+    }
 
+    setState(() => _editing = false);
     await _loadData();
   }
 
@@ -157,10 +203,18 @@ class _CertificateDetailScreenState extends State<CertificateDetailScreen> {
         ),
         centerTitle: true,
         elevation: 0,
+        actions: [
+          if (!_loading && _certificate != null)
+            IconButton(
+              icon: Icon(_editing ? Icons.close : Icons.edit_outlined),
+              tooltip: _editing ? 'Cancel' : 'Edit certificate',
+              onPressed: _editing ? _cancelEdit : _startEdit,
+            ),
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _certificate == null
+          : (_certificate == null || _editing)
               ? _buildForm()
               : _buildInfoView(),
     );
@@ -175,8 +229,11 @@ class _CertificateDetailScreenState extends State<CertificateDetailScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _sectionHeader(
-              Icons.workspace_premium, 'Certificate Details',
-              'Enter the details for this investment certificate.'),
+              Icons.workspace_premium,
+              _editing ? 'Edit Certificate' : 'Certificate Details',
+              _editing
+                  ? 'Update any field — details recalculate automatically.'
+                  : 'Enter the details for this investment certificate.'),
           const SizedBox(height: 20),
 
           TextField(
@@ -219,6 +276,31 @@ class _CertificateDetailScreenState extends State<CertificateDetailScreen> {
                 : 'Matures: ${_maturityDate!.toIso8601String().substring(0, 10)}',
             isSet: _maturityDate != null,
             onTap: () => _pickDate(false),
+          ),
+          const SizedBox(height: 20),
+
+          const Text(
+            'Interest payment frequency:',
+            style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: AppColors.primary),
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<int>(
+            initialValue: _frequencyMonths,
+            decoration: const InputDecoration(
+              prefixIcon: Icon(Icons.repeat),
+            ),
+            borderRadius: BorderRadius.circular(10),
+            items: const [
+              DropdownMenuItem(value: 1, child: Text('Monthly')),
+              DropdownMenuItem(value: 3, child: Text('Every 3 months')),
+              DropdownMenuItem(value: 6, child: Text('Every 6 months')),
+              DropdownMenuItem(value: 12, child: Text('Yearly')),
+            ],
+            onChanged: (val) =>
+                setState(() => _frequencyMonths = val ?? 1),
           ),
 
           // El Ahly: deposit account selector
@@ -282,7 +364,7 @@ class _CertificateDetailScreenState extends State<CertificateDetailScreen> {
             child: FilledButton.icon(
               onPressed: _saveCertificate,
               icon: const Icon(Icons.save_outlined),
-              label: const Text('Save Certificate'),
+              label: Text(_editing ? 'Save Changes' : 'Save Certificate'),
               style: FilledButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 padding: const EdgeInsets.symmetric(vertical: 16),
@@ -291,6 +373,21 @@ class _CertificateDetailScreenState extends State<CertificateDetailScreen> {
               ),
             ),
           ),
+          if (_editing) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: _cancelEdit,
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                ),
+                child: const Text('Cancel'),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -461,6 +558,11 @@ class _CertificateDetailScreenState extends State<CertificateDetailScreen> {
                 _divider(),
                 _infoRow(Icons.event_available, 'Maturity Date',
                     cert.maturityDate),
+                _divider(),
+                _infoRow(Icons.repeat, 'Interest Frequency',
+                    cert.frequencyMonths == 1
+                        ? 'Monthly'
+                        : 'Every ${cert.frequencyMonths} months'),
                 _divider(),
                 _infoRow(
                   Icons.notifications_outlined,
