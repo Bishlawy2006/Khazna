@@ -1,5 +1,6 @@
 import AppIntents
 import Foundation
+import UserNotifications
 
 // MARK: - Shortcuts action
 
@@ -24,6 +25,14 @@ struct ProcessBankSMSIntent: AppIntent {
         // Diagnostics only: records THAT the intent ran and how it ended,
         // never the SMS content (only its length).
         SMSQueue.logEvent("perform: textLength=\(smsText.count) result=\(status)")
+
+        // Tell the user the SMS reached Khazna, even with the phone locked and
+        // the app closed. Parsing happens when Khazna next opens, so the text
+        // says so. Deliberately generic: a lock-screen banner must not reveal
+        // amounts or balances.
+        if status == "ok" {
+            await SMSQueue.postReceivedNotification()
+        }
         return .result()
     }
 }
@@ -76,6 +85,22 @@ enum SMSQueue {
             return "ok"
         } catch {
             return "writeFailed: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: "SMS received" notification
+
+    static func postReceivedNotification() async {
+        let content = UNMutableNotificationContent()
+        content.title = "Bank SMS received"
+        content.body = "Open Khazna to add it to your transactions."
+        content.sound = .default
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString, content: content, trigger: nil)
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+        } catch {
+            logEvent("notification failed: \(error.localizedDescription)")
         }
     }
 
