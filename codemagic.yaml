@@ -1,0 +1,27 @@
+# Codemagic CI config for Khazna.
+# Produces an UNSIGNED .ipa that Sideloadly (Windows) signs with your Apple ID
+# and installs on your iPhone. No Apple Developer account needed for this step.
+
+workflows:
+  ios-unsigned-ipa:
+    name: Khazna iOS (unsigned IPA for Sideloadly)
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+    environment:
+      flutter: 3.44.6   # matches the local toolchain; change to "stable" if Codemagic rejects it
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Build iOS release without code signing
+        script: flutter build ios --release --no-codesign
+      - name: Package Runner.app into an .ipa
+        # An .ipa is just a zip containing Payload/<App>.app
+        script: |
+          mkdir -p build/ios/ipa/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ios/ipa/Payload/
+          cd build/ios/ipa
+          zip -qr Khazna-unsigned.ipa Payload
+    artifacts:
+      - build/ios/ipa/Khazna-unsigned.ipa
