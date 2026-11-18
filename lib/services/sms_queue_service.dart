@@ -98,6 +98,7 @@ class SmsQueueService {
       var created = 0;
       var seen = 0;
       var failed = 0;
+      var duplicates = 0;
       String? lastLineError;
       for (final line in await work.readAsLines()) {
         if (line.trim().isEmpty) continue;
@@ -105,10 +106,19 @@ class SmsQueueService {
         try {
           final map = jsonDecode(line) as Map<String, dynamic>;
           final text = map['text'] as String;
-          if (await AutoTransactionService.processNotification(text)) {
-            created++;
-          } else {
-            await _logUnparsed();
+          final receivedAt =
+              DateTime.tryParse(map['receivedAt'] as String? ?? '')?.toLocal();
+          final outcome = await AutoTransactionService.processNotification(
+            text,
+            receivedAt: receivedAt,
+          );
+          switch (outcome) {
+            case SmsOutcome.created:
+              created++;
+            case SmsOutcome.duplicate:
+              duplicates++;
+            case SmsOutcome.unparsed:
+              await _logUnparsed();
           }
         } catch (e) {
           failed++;
@@ -122,7 +132,7 @@ class SmsQueueService {
       }
       await work.delete();
       lastReport = 'ran ${DateTime.now()}: messages=$seen created=$created '
-          'failed=$failed${lastLineError == null ? '' : ' ($lastLineError)'}';
+          'duplicates=$duplicates failed=$failed${lastLineError == null ? '' : ' ($lastLineError)'}';
       return created;
     } catch (e) {
       lastReport = 'drain FAILED: $e';

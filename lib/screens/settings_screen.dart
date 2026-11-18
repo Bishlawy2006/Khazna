@@ -6,6 +6,7 @@ import '../db/database_helper.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/backup_service.dart';
+import '../services/session_service.dart';
 import '../theme/app_theme.dart';
 import 'diagnostics_screen.dart';
 import 'login_screen.dart';
@@ -22,10 +23,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
   UserModel? _user;
   bool _isLoading = true;
 
+  // Remembered-session settings (see SessionService).
+  bool _staySignedIn = true;
+  bool _biometricLock = true;
+  bool _biometricAvailable = false;
+
   @override
   void initState() {
     super.initState();
     _loadUser();
+    _loadSessionSettings();
+  }
+
+  Future<void> _loadSessionSettings() async {
+    final stay = await SessionService.staySignedIn();
+    final bio = await SessionService.biometricLock();
+    final available = await SessionService.biometricAvailable();
+    if (mounted) {
+      setState(() {
+        _staySignedIn = stay;
+        _biometricLock = bio;
+        _biometricAvailable = available;
+      });
+    }
+  }
+
+  Future<void> _toggleStaySignedIn(bool value) async {
+    setState(() => _staySignedIn = value);
+    await SessionService.setStaySignedIn(value);
+    // Turning it on while signed in remembers the current session.
+    if (value) await SessionService.markSignedIn();
+  }
+
+  Future<void> _toggleBiometricLock(bool value) async {
+    if (value) {
+      // Prove it works before relying on it.
+      final ok = await SessionService.authenticate('Enable unlock on launch');
+      if (!ok) {
+        _showSnack('Could not verify Face ID / passcode. Lock not enabled.');
+        return;
+      }
+    }
+    setState(() => _biometricLock = value);
+    await SessionService.setBiometricLock(value);
   }
 
   Future<void> _loadUser() async {
@@ -369,8 +409,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: AppColors.error),
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(ctx);
+              await SessionService.clear();
+              if (!mounted) return;
               Navigator.pushAndRemoveUntil(
                   context,
                   slideRoute(const LoginScreen()),
@@ -421,6 +463,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onTap: _showChangePasswordDialog,
                   ),
                   _twoFactorTile(),
+                  _tile(
+                    icon: Icons.login_outlined,
+                    iconColor: AppColors.primary,
+                    label: 'Stay signed in',
+                    subtitle: 'Skip the password after closing the app. '
+                        'Sign Out always asks for it again.',
+                    trailing: Switch(
+                      value: _staySignedIn,
+                      onChanged: _toggleStaySignedIn,
+                    ),
+                  ),
+                  if (_biometricAvailable)
+                    _tile(
+                      icon: Icons.face_outlined,
+                      iconColor: AppColors.primary,
+                      label: 'Unlock with Face ID',
+                      subtitle: _staySignedIn
+                          ? 'Face ID / Touch ID or your passcode when opening '
+                              'Khazna. Off = opens without any lock.'
+                          : 'Turn on "Stay signed in" first',
+                      trailing: Switch(
+                        value: _biometricLock && _staySignedIn,
+                        onChanged: _staySignedIn ? _toggleBiometricLock : null,
+                      ),
+                    ),
                 ]),
 
                 const SizedBox(height: 24),

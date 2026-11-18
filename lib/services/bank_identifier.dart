@@ -1,27 +1,70 @@
 import '../models/bank_model.dart';
+import 'notification_parser.dart';
 
-/// Matches a raw notification text to a known bank.
-/// Returns the bank name string, or null if no match found.
+/// Matches a raw SMS / notification text to one of the user's banks.
 ///
-/// Future: each bank has its own SMS/notification signature patterns.
-/// These will be populated as we add real notification parsing.
+/// Some banks never print their own name in the SMS (El Ahly's card message
+/// only carries the 19623 hotline; Mashreq's card message is generic English),
+/// so each known bank has a list of message *signatures*: names, hotline
+/// numbers and message templates.
+///
+/// The user creates banks by typing a name, so the stored name may be
+/// "El Ahly", "NBE", "Mashreq"... [_Known.nameMatch] maps whatever they typed
+/// to the right signature set.
+///
+/// Short Latin names use word boundaries so "nbe" does not match inside
+/// another word, and the hotline is matched as a whole number so it cannot
+/// match inside an amount like 119623.50.
 class BankIdentifier {
-  static const _patterns = <String, List<String>>{
-    'El Ahly':    ['ahly', 'nbe', 'national bank of egypt', 'البنك الأهلي'],
-    'CIB':        ['cib', 'commercial international', 'سي اي بي'],
-    'Telda':      ['telda'],
-    'El Mashreq': ['mashreq', 'المشرق'],
-  };
+  BankIdentifier._();
 
-  /// Finds the best-matching bank from [availableBanks] given the
-  /// notification [text]. Returns the matched bank or null.
+  static final List<_Known> _known = [
+    _Known(
+      nameMatch: RegExp(r'ahly|\bnbe\b|national bank|الأهلي|الاهلي',
+          caseSensitive: false),
+      signatures: [
+        RegExp(r'\b(?:ahly|nbe)\b', caseSensitive: false),
+        RegExp(r'national bank of egypt', caseSensitive: false),
+        RegExp('البنك الأهلي|البنك الاهلي'),
+        RegExp(r'(?<!\d)19623(?!\d)'), // NBE hotline (also printed as ١٩٦٢٣)
+      ],
+    ),
+    _Known(
+      nameMatch:
+          RegExp(r'\bcib\b|commercial international|سي اي بي', caseSensitive: false),
+      signatures: [
+        RegExp(r'\bcib\b', caseSensitive: false),
+        RegExp(r'commercial international', caseSensitive: false),
+        RegExp('سي اي بي'),
+      ],
+    ),
+    _Known(
+      nameMatch: RegExp(r'telda', caseSensitive: false),
+      signatures: [RegExp(r'telda', caseSensitive: false)],
+    ),
+    _Known(
+      nameMatch: RegExp(r'mashreq|المشرق', caseSensitive: false),
+      signatures: [
+        RegExp(r'mashreq', caseSensitive: false),
+        RegExp('المشرق'),
+        // Card-purchase template, which has no bank name in it.
+        RegExp(r'your card ending with \S+ has been used at',
+            caseSensitive: false),
+      ],
+    ),
+  ];
+
+  /// Finds the first bank in [availableBanks] whose signature appears in
+  /// [text]. Returns null when nothing matches.
   static BankModel? matchBank(String text, List<BankModel> availableBanks) {
-    final lower = text.toLowerCase();
+    final normalized = NotificationParser.normalize(text);
 
     for (final bank in availableBanks) {
-      final keywords = _patterns[bank.name] ??
-          [bank.name.toLowerCase()];
-      if (keywords.any((k) => lower.contains(k))) {
+      final known =
+          _known.where((k) => k.nameMatch.hasMatch(bank.name)).firstOrNull;
+      final signatures = known?.signatures ??
+          [RegExp(RegExp.escape(bank.name), caseSensitive: false)];
+      if (signatures.any((s) => s.hasMatch(normalized))) {
         return bank;
       }
     }
@@ -44,4 +87,14 @@ class BankIdentifier {
     }
     return null;
   }
+}
+
+class _Known {
+  /// Matches the bank name as the user typed it.
+  final RegExp nameMatch;
+
+  /// Matches text inside an SMS from that bank.
+  final List<RegExp> signatures;
+
+  const _Known({required this.nameMatch, required this.signatures});
 }

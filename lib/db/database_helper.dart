@@ -353,6 +353,20 @@ class DatabaseHelper {
     return await db.insert('transactions', tx.toMap());
   }
 
+  /// True if an auto-parsed transaction with this fingerprint already exists.
+  /// (Auto-parsed rows store a fingerprint in rawNotification, never the SMS.)
+  Future<bool> transactionFingerprintExists(String fingerprint) async {
+    final db = await database;
+    final rows = await db.query(
+      'transactions',
+      columns: ['id'],
+      where: 'rawNotification = ?',
+      whereArgs: [fingerprint],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
   Future<List<TransactionModel>> getTransactionsForAccount(
       int accountId) async {
     final db = await database;

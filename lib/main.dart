@@ -2,9 +2,12 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'db/database_helper.dart';
+import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
 import 'services/notification_service.dart';
+import 'services/session_service.dart';
+import 'services/sms_queue_service.dart';
 import 'theme/app_theme.dart';
 
 void main() async {
@@ -17,6 +20,11 @@ void main() async {
   await NotificationService.initialize();
   await DatabaseHelper.instance.processAllCertificateInterest();
   await DatabaseHelper.instance.ensureCashAccountExists();
+
+  // iOS: pick up SMS queued by the Shortcuts "Process Bank SMS" action,
+  // now and every time the app returns to the foreground.
+  await SmsQueueService.drain();
+  WidgetsBinding.instance.addObserver(SmsQueueLifecycleObserver());
 
   runApp(const KhaznaApp());
 }
@@ -96,9 +104,17 @@ class _AuthGateState extends State<AuthGate> {
   Future<void> _resolve() async {
     final user = await DatabaseHelper.instance.getUser();
     if (!mounted) return;
+    if (user == null) {
+      setState(() => _screen = const RegisterScreen());
+      return;
+    }
+
+    // A remembered session skips the password screen; on iOS it first asks
+    // for Face ID / Touch ID / passcode. Cancel or failure → normal login.
+    final resume = await SessionService.tryResume();
+    if (!mounted) return;
     setState(() {
-      _screen =
-          user == null ? const RegisterScreen() : const LoginScreen();
+      _screen = resume ? const HomeScreen() : const LoginScreen();
     });
   }
 

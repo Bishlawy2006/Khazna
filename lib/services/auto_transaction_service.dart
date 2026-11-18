@@ -4,46 +4,66 @@ import '../models/bank_model.dart';
 import 'bank_identifier.dart';
 import 'notification_parser.dart';
 
-/// Orchestrates the full pipeline for auto-parsed bank notifications.
+/// What happened to one incoming bank SMS.
+enum SmsOutcome {
+  /// A transaction was created and the balance updated.
+  created,
+
+  /// Recognised, but already recorded earlier (same SMS delivered twice).
+  duplicate,
+
+  /// Not recognised or not parseable; nothing was written.
+  unparsed,
+}
+
+/// Orchestrates the full pipeline for auto-parsed bank SMS:
 ///
-/// Future flow:
-///   Phone receives bank notification
-///     → AutoTransactionService.processNotification(text)
-///       → BankIdentifier.matchBank(text, banks)
-///       → NotificationParser.parse(text, accountId)
-///       → DatabaseHelper.insertTransaction(tx)
-///       → DatabaseHelper.logActivity(log)
-///       → UI refreshes
-///
-/// Currently a stub — processNotification returns false until parsing is built.
+///   SMS text
+///     → BankIdentifier.matchBank        (which bank?)
+///     → that bank's first 'current' account
+///     → NotificationParser.parse        (amount / type / date / merchant)
+///     → duplicate check (fingerprint)
+///     → DatabaseHelper.insertTransaction (updates the balance)
+///     → DatabaseHelper.logActivity
 class AutoTransactionService {
   static final _db = DatabaseHelper.instance;
 
-  /// Attempt to automatically process a bank notification string.
-  /// Returns true if a transaction was created, false otherwise.
-  static Future<bool> processNotification(String notificationText) async {
+  /// Processes one SMS. [receivedAt] is when it reached the phone; it is used
+  /// as the date for message formats that have none.
+  static Future<SmsOutcome> processNotification(
+    String notificationText, {
+    DateTime? receivedAt,
+  }) async {
     // Step 1: Identify bank
     final banks = await _db.getAllBanks();
     final BankModel? bank =
         BankIdentifier.matchBank(notificationText, banks);
-    if (bank == null) return false;
+    if (bank == null) return SmsOutcome.unparsed;
 
     // Step 2: Find the primary (current) account for this bank
     final accounts = await _db.getAccountsForBank(bank.id!);
     final account = accounts.where((a) => a.type == 'current').firstOrNull;
-    if (account == null) return false;
+    if (account == null) return SmsOutcome.unparsed;
 
-    // Step 3: Parse the notification
+    // Step 3: Parse the message
     final tx = NotificationParser.parse(
       notificationText,
       accountId: account.id!,
+      receivedAt: receivedAt,
     );
-    if (tx == null) return false;
+    if (tx == null) return SmsOutcome.unparsed;
 
-    // Step 4: Insert the transaction (balance updated automatically)
+    // Step 4: Ignore the same SMS arriving twice (e.g. Shortcut ran twice)
+    final fingerprint = tx.rawNotification;
+    if (fingerprint != null &&
+        await _db.transactionFingerprintExists(fingerprint)) {
+      return SmsOutcome.duplicate;
+    }
+
+    // Step 5: Insert the transaction (balance updated automatically)
     await _db.insertTransaction(tx);
 
-    // Step 5: Log the activity
+    // Step 6: Log the activity
     await _db.logActivity(
       ActivityLogModel.transactionAdded(
         type: tx.type,
@@ -51,10 +71,10 @@ class AutoTransactionService {
         bankName: bank.name,
         accountName: account.name,
         category: tx.category,
-        note: '[Auto-parsed from notification]',
+        note: '[Auto-parsed from SMS]',
       ),
     );
 
-    return true;
+    return SmsOutcome.created;
   }
 }

@@ -4,6 +4,7 @@ import '../models/bank_model.dart';
 import '../models/account_model.dart';
 import '../models/activity_log_model.dart';
 import '../services/notification_service.dart';
+import '../services/session_service.dart';
 import '../theme/app_theme.dart';
 import 'bank_detail_screen.dart';
 import 'cash_screen.dart';
@@ -31,6 +32,9 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    // Reaching Home means the user fully signed in (password + 2FA, or
+    // the biometric unlock): remember it so a force-close does not log out.
+    SessionService.markSignedIn();
     _loadData();
   }
 
