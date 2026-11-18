@@ -23,7 +23,15 @@ class NotificationService {
       } else if (Platform.isAndroid || Platform.isIOS) {
         const androidInit =
             AndroidInitializationSettings('@mipmap/ic_launcher');
-        const initSettings = InitializationSettings(android: androidInit);
+        // iOS needs its own settings: without them the plugin never
+        // registers for iOS and the permission prompt is never shown.
+        const iosInit = DarwinInitializationSettings(
+          requestAlertPermission: true,
+          requestBadgePermission: true,
+          requestSoundPermission: true,
+        );
+        const initSettings =
+            InitializationSettings(android: androidInit, iOS: iosInit);
         await _flnp.initialize(initSettings);
 
         const channel = AndroidNotificationChannel(
@@ -64,11 +72,20 @@ class NotificationService {
           priority: Priority.high,
           showWhen: true,
         );
+        // iOS suppresses notifications while the app is open unless the
+        // presentation options are set explicitly. Khazna fires these right
+        // after the user taps "add", i.e. always in the foreground.
+        const iosDetails = DarwinNotificationDetails(
+          presentAlert: true,
+          presentBanner: true,
+          presentList: true,
+          presentSound: true,
+        );
         await _flnp.show(
           _notificationId++,
           title,
           body,
-          const NotificationDetails(android: androidDetails),
+          const NotificationDetails(android: androidDetails, iOS: iosDetails),
         );
       }
     } catch (e) {
