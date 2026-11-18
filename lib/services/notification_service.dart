@@ -12,6 +12,38 @@ class NotificationService {
   static const _androidChannelId = 'khazna_channel';
   static const _androidChannelName = 'Khazna Notifications';
 
+  // Diagnostics (shown on the iOS diagnostics screen).
+  static String lastInitResult = 'initialize() not run yet';
+  static String lastNotifyResult = 'notify() not called yet';
+
+  /// iOS only: what the OS says about this app's notification permission.
+  static Future<String> iosPermissionStatus() async {
+    try {
+      final ios = _flnp.resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin>();
+      if (ios == null) return 'iOS plugin implementation not found';
+      final o = await ios.checkPermissions();
+      if (o == null) return 'checkPermissions returned null';
+      return 'enabled=${o.isEnabled}  alert=${o.isAlertEnabled}  '
+          'sound=${o.isSoundEnabled}  badge=${o.isBadgeEnabled}';
+    } catch (e) {
+      return 'checkPermissions failed: $e';
+    }
+  }
+
+  /// iOS only: asks the OS for permission again (no-op if already decided).
+  static Future<String> iosRequestPermission() async {
+    try {
+      final ios = _flnp.resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin>();
+      final granted =
+          await ios?.requestPermissions(alert: true, badge: true, sound: true);
+      return 'requestPermissions → $granted';
+    } catch (e) {
+      return 'requestPermissions failed: $e';
+    }
+  }
+
   // ── Initialize once at startup ─────────────────────────
   static Future<void> initialize() async {
     try {
@@ -51,14 +83,19 @@ class NotificationService {
             ?.requestNotificationsPermission();
       }
       _ready = true;
+      lastInitResult = 'ok';
     } catch (e) {
+      lastInitResult = 'FAILED: $e';
       debugPrint('[NotificationService] init failed: $e');
     }
   }
 
   // ── Show a system popup ─────────────────────────────────
   static Future<void> notify(String title, String body) async {
-    if (!_ready) return;
+    if (!_ready) {
+      lastNotifyResult = 'skipped: service not ready (init failed)';
+      return;
+    }
     try {
       if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
         final notification = LocalNotification(title: title, body: body);
@@ -87,8 +124,10 @@ class NotificationService {
           body,
           const NotificationDetails(android: androidDetails, iOS: iosDetails),
         );
+        lastNotifyResult = 'show() completed at ${DateTime.now()}';
       }
     } catch (e) {
+      lastNotifyResult = 'show() FAILED: $e';
       debugPrint('[NotificationService] notify failed: $e');
     }
   }

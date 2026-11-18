@@ -7,6 +7,7 @@ import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/backup_service.dart';
 import '../theme/app_theme.dart';
+import 'diagnostics_screen.dart';
 import 'login_screen.dart';
 import 'setup_2fa_screen.dart';
 
@@ -465,6 +466,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             fontSize: 14,
                             fontWeight: FontWeight.w500)),
                   ),
+                  if (Platform.isIOS)
+                    _tile(
+                      icon: Icons.bug_report_outlined,
+                      iconColor: Colors.deepPurple,
+                      label: 'iOS diagnostics',
+                      subtitle: 'Notification and Shortcuts SMS status',
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const DiagnosticsScreen()),
+                      ),
+                    ),
                 ]),
 
                 const SizedBox(height: 24),

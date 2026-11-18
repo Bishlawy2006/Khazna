@@ -20,7 +20,10 @@ struct ProcessBankSMSIntent: AppIntent {
     var smsText: String
 
     func perform() async throws -> some IntentResult {
-        SMSQueue.append(smsText)
+        let status = SMSQueue.append(smsText)
+        // Diagnostics only: records THAT the intent ran and how it ended,
+        // never the SMS content (only its length).
+        SMSQueue.logEvent("perform: textLength=\(smsText.count) result=\(status)")
         return .result()
     }
 }
@@ -36,12 +39,14 @@ enum SMSQueue {
     static let fileName = "khazna_sms_queue.jsonl"
     private static let lock = NSLock()
 
-    static func append(_ text: String) {
+    /// Returns a short status string ("ok", "emptyText", ...) for diagnostics.
+    @discardableResult
+    static func append(_ text: String) -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty,
-              let dir = FileManager.default
-                .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-        else { return }
+        guard !trimmed.isEmpty else { return "emptyText" }
+        guard let dir = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        else { return "noSupportDir" }
 
         let payload: [String: String] = [
             "text": trimmed,
@@ -49,7 +54,7 @@ enum SMSQueue {
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let json = String(data: data, encoding: .utf8)
-        else { return }
+        else { return "jsonEncodeFailed" }
         let lineData = Data((json + "\n").utf8)
 
         // Several Shortcut runs can overlap; serialize the file access.
@@ -68,8 +73,39 @@ enum SMSQueue {
             } else {
                 try lineData.write(to: url, options: .atomic)
             }
+            return "ok"
         } catch {
-            // Nothing sensible to do inside a background intent; drop the line.
+            return "writeFailed: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: Diagnostics log
+
+    static let logFileName = "khazna_intent_log.txt"
+
+    /// Appends one timestamped line to a small diagnostics log that the
+    /// in-app diagnostics screen displays. Never contains SMS content.
+    static func logEvent(_ message: String) {
+        guard let dir = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        let line = "\(ISO8601DateFormatter().string(from: Date())) \(message)\n"
+        let url = dir.appendingPathComponent(logFileName)
+        do {
+            try FileManager.default.createDirectory(
+                at: dir, withIntermediateDirectories: true)
+            if FileManager.default.fileExists(atPath: url.path) {
+                let handle = try FileHandle(forWritingTo: url)
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                try handle.write(contentsOf: Data(line.utf8))
+            } else {
+                try Data(line.utf8).write(to: url, options: .atomic)
+            }
+        } catch {
+            // Diagnostics must never break the intent.
         }
     }
 }
