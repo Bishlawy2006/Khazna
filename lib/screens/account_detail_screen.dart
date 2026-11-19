@@ -235,6 +235,7 @@ class _AccountDetailScreenState extends State<AccountDetailScreen> {
                   const SizedBox(height: 3),
                   Text(
                     tx.date +
+                        (tx.time != null ? ' ${tx.time}' : '') +
                         (tx.note != null ? '  •  ${tx.note}' : ''),
                     style: const TextStyle(
                         color: Colors.grey, fontSize: 12),

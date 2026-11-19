@@ -5,7 +5,7 @@ import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/email_service.dart';
 import '../theme/app_theme.dart';
-import 'home_screen.dart';
+import 'main_shell.dart';
 
 class OtpVerificationScreen extends StatefulWidget {
   final UserModel user;
@@ -128,7 +128,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
     if (isValid) {
       Navigator.pushAndRemoveUntil(
-          context, slideRoute(const HomeScreen()), (r) => false);
+          context, slideRoute(const MainShell()), (r) => false);
     } else {
       setState(() {
         _isLoading = false;

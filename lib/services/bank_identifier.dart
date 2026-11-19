@@ -40,7 +40,11 @@ class BankIdentifier {
     ),
     _Known(
       nameMatch: RegExp(r'telda', caseSensitive: false),
-      signatures: [RegExp(r'telda', caseSensitive: false)],
+      signatures: [
+        RegExp(r'telda', caseSensitive: false),
+        // Telda purchase alert, which does not print the bank name.
+        RegExp(r'\byou spent (?:(?:egp|e£|le)\s?)*\d', caseSensitive: false),
+      ],
     ),
     _Known(
       nameMatch: RegExp(r'mashreq|المشرق', caseSensitive: false),

@@ -2,7 +2,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'db/database_helper.dart';
-import 'screens/home_screen.dart';
+import 'screens/main_shell.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
 import 'services/notification_service.dart';
@@ -92,13 +92,37 @@ class AuthGate extends StatefulWidget {
   State<AuthGate> createState() => _AuthGateState();
 }
 
-class _AuthGateState extends State<AuthGate> {
+class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   Widget? _screen;
+  bool _resolving = false;
 
   @override
   void initState() {
     super.initState();
-    _resolve();
+    WidgetsBinding.instance.addObserver(this);
+    _tryResolve();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _tryResolve();
+  }
+
+  /// Decide the first screen only while the app is in the foreground:
+  /// Face ID cannot be shown when iOS launched us in the background
+  /// (e.g. from the SMS Shortcut), so wait until we are resumed.
+  void _tryResolve() {
+    if (_screen != null || _resolving) return;
+    final state = WidgetsBinding.instance.lifecycleState;
+    if (state != null && state != AppLifecycleState.resumed) return;
+    _resolving = true;
+    _resolve().whenComplete(() => _resolving = false);
   }
 
   Future<void> _resolve() async {
@@ -114,7 +138,7 @@ class _AuthGateState extends State<AuthGate> {
     final resume = await SessionService.tryResume();
     if (!mounted) return;
     setState(() {
-      _screen = resume ? const HomeScreen() : const LoginScreen();
+      _screen = resume ? const MainShell() : const LoginScreen();
     });
   }
 

@@ -26,7 +26,7 @@ class DatabaseHelper {
     final path = join(dbPath, filePath);
     return await openDatabase(
       path,
-      version: 6,
+      version: 7,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -79,6 +79,7 @@ class DatabaseHelper {
         note TEXT,
         source TEXT NOT NULL DEFAULT 'manual',
         rawNotification TEXT,
+        time TEXT,
         FOREIGN KEY (accountId) REFERENCES accounts(id)
       )
     ''');
@@ -163,6 +164,10 @@ class DatabaseHelper {
   }
 
   Future _upgradeDB(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 7) {
+      // Time of day ('HH:mm') parsed from bank notifications.
+      await db.execute('ALTER TABLE transactions ADD COLUMN time TEXT');
+    }
     if (oldVersion < 2) {
       await db.execute(
           "ALTER TABLE transactions ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'");

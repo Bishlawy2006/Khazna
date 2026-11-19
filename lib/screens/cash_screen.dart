@@ -228,7 +228,9 @@ class _CashScreenState extends State<CashScreen> {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    tx.date + (tx.note != null ? '  •  ${tx.note}' : ''),
+                    tx.date +
+                        (tx.time != null ? ' ${tx.time}' : '') +
+                        (tx.note != null ? '  •  ${tx.note}' : ''),
                     style: const TextStyle(color: Colors.grey, fontSize: 12),
                     overflow: TextOverflow.ellipsis,
                   ),

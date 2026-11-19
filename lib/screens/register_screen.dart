@@ -5,7 +5,7 @@ import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/backup_service.dart';
 import '../theme/app_theme.dart';
-import 'home_screen.dart';
+import 'main_shell.dart';
 import 'login_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -171,7 +171,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     if (!mounted) return;
     Navigator.pushAndRemoveUntil(
-        context, slideRoute(const HomeScreen()), (r) => false);
+        context, slideRoute(const MainShell()), (r) => false);
   }
 
   @override

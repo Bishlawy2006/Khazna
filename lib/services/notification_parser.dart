@@ -1,3 +1,4 @@
+// ignore_for_file: prefer_interpolation_to_compose_strings
 import '../models/transaction_model.dart';
 
 /// Parses a raw bank SMS into a [TransactionModel].
@@ -6,8 +7,14 @@ import '../models/transaction_model.dart';
 ///   * El Ahly / NBE  — direct-debit card purchase  ("تم خصم ... عند ...")
 ///   * El Mashreq     — card purchase               ("... has been used at ... for EGP ...")
 ///   * El Mashreq     — Instapay sent / received    ("قمت بتحويل لحظي" / "استقبلت تحويل لحظي")
+///   * Telda          — card purchase               ("You spent EGP 89 at <merchant>")
 ///
-/// CIB and Telda formats are not implemented yet (no samples).
+/// Every message is split into: category, amount, date, time and place
+/// (merchant, stored as the note). Telda alerts are push notifications that
+/// Shortcuts cannot read; they reach the app through the Apple Wallet
+/// "Transaction" automation, which rebuilds this same sentence.
+///
+/// CIB is not implemented yet (no samples).
 ///
 /// Design rules:
 ///   * Strict over lenient: if anything about a message is unexpected the
@@ -41,6 +48,7 @@ class NotificationParser {
       ?_parseMashreqCardPurchase(text, now),
       ?_parseInstapaySent(text),
       ?_parseInstapayReceived(text),
+      ?_parseTeldaPurchase(text, now),
     ];
     if (candidates.isEmpty) return null;
     if (candidates.any((c) => c.type != candidates.first.type)) return null;
@@ -54,6 +62,7 @@ class NotificationParser {
       category: parsed.category,
       date: parsed.date,
       note: parsed.note,
+      time: parsed.time,
       source: 'auto',
       rawNotification: parsed.fingerprint,
     );
@@ -63,7 +72,8 @@ class NotificationParser {
 
   static const _arabicIndic = '٠١٢٣٤٥٦٧٨٩';
   static const _easternArabicIndic = '۰۱۲۳۴۵۶۷۸۹';
-  static final _bidiMarks = RegExp(r'[‎‏‪-‮⁦-⁩]');
+  static final _bidiMarks =
+      RegExp(r'[\u200E\u200F\u202A-\u202E\u2066-\u2069]');
   static final _whitespace = RegExp(r'\s+');
 
   /// Arabic-Indic digits → ASCII, Arabic separators → ASCII, strips invisible
@@ -117,6 +127,17 @@ class NotificationParser {
       '${dt.month.toString().padLeft(2, '0')}-'
       '${dt.day.toString().padLeft(2, '0')}';
 
+  static String _timeOf(DateTime dt) =>
+      '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+
+  /// 'HH:mm' or null when the parts are not a real time of day.
+  static String? _time(String h, String m) {
+    final hour = int.parse(h);
+    final minute = int.parse(m);
+    if (hour > 23 || minute > 59) return null;
+    return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+  }
+
   // ──────────────────────── El Ahly / NBE ────────────────────────
   //
   // تم خصم 109 EGP من بطاقة الخصم المباشر رقم .... باستخدام Mobile Payment
@@ -133,13 +154,15 @@ class NotificationParser {
     final amount = _amount(m.group(1)!);
     // Groups: 1 amount, 2 merchant, 3 day, 4 month, 5 year, 6 hour, 7 minute.
     final date = _date(m.group(3)!, m.group(4)!, m.group(5)!);
-    if (amount == null || date == null) return null;
+    final time = _time(m.group(6)!, m.group(7)!);
+    if (amount == null || date == null || time == null) return null;
     final merchant = m.group(2)!.trim();
     return _Parsed(
       amount: amount,
       type: 'expense',
       category: 'Card Payment',
       date: date,
+      time: time,
       note: merchant,
       // No reference number in this format: date + minute + amount + merchant.
       fingerprint:
@@ -169,6 +192,7 @@ class NotificationParser {
       type: 'expense',
       category: 'Card Payment',
       date: _dateOf(receivedAt),
+      time: _timeOf(receivedAt),
       note: m.group(1)!.trim(),
     );
   }
@@ -199,12 +223,14 @@ class NotificationParser {
     if (m == null) return null;
     final amount = _amount(m.group(1)!);
     final date = _date(m.group(2)!, m.group(3)!, m.group(4)!);
-    if (amount == null || date == null) return null;
+    final time = _time(m.group(5)!, m.group(6)!);
+    if (amount == null || date == null || time == null) return null;
     return _Parsed(
       amount: amount,
       type: 'expense',
       category: 'Transfer',
       date: date,
+      time: time,
       note: 'Instapay transfer',
       fingerprint: 'ipn|${m.group(7)}',
     );
@@ -215,17 +241,57 @@ class NotificationParser {
     if (m == null) return null;
     final amount = _amount(m.group(1)!);
     final date = _date(m.group(2)!, m.group(3)!, m.group(4)!);
-    if (amount == null || date == null) return null;
+    final time = _time(m.group(5)!, m.group(6)!);
+    if (amount == null || date == null || time == null) return null;
     final sender = _ipnSender.firstMatch(text)?.group(1)?.trim();
     return _Parsed(
       amount: amount,
       type: 'income',
       category: 'Transfer',
       date: date,
+      time: time,
       note: (sender == null || sender.isEmpty)
           ? 'Instapay transfer'
           : 'Instapay from $sender',
       fingerprint: 'ipn|${m.group(7)}',
+    );
+  }
+
+  // ───────────────────────────── Telda ─────────────────────────────
+  //
+  // You spent EGP 89 at German University in Cairo  Balance: EGP 184.01
+  //
+  // The same sentence is rebuilt by the Wallet "Transaction" automation as
+  // "Telda: You spent EGP <Amount> at <Merchant>" (the currency prefix may be
+  // doubled by Shortcuts, so repeated "EGP"/"E£" prefixes are tolerated).
+  //
+  // Telda alerts carry no date or time → the moment the alert reached the
+  // phone is used. Only EGP purchases are accepted; "Declined" alerts and any
+  // other currency are rejected rather than guessed.
+  static final _teldaSpent = RegExp(
+    r'you spent (?:(?:EGP|E£|LE)\s?)*' + _amt + r'(?:\s?EGP)? at (.+?)(?=\s+balance\b|\s*$)',
+    caseSensitive: false,
+  );
+  static final _declined = RegExp(r'\bdeclined\b', caseSensitive: false);
+
+  static _Parsed? _parseTeldaPurchase(String text, DateTime receivedAt) {
+    if (_declined.hasMatch(text)) return null;
+    final m = _teldaSpent.firstMatch(text);
+    if (m == null) return null;
+    final amount = _amount(m.group(1)!);
+    final merchant = m.group(2)!.trim();
+    if (amount == null || merchant.isEmpty) return null;
+    final date = _dateOf(receivedAt);
+    final time = _timeOf(receivedAt);
+    return _Parsed(
+      amount: amount,
+      type: 'expense',
+      category: 'Card Payment',
+      date: date,
+      time: time,
+      note: merchant,
+      // No reference number: date + minute + amount + merchant.
+      fingerprint: 'telda|$amount|$date|$time|$merchant',
     );
   }
 }
@@ -236,6 +302,7 @@ class _Parsed {
   final String type; // 'income' | 'expense'
   final String category;
   final String date; // yyyy-MM-dd
+  final String? time; // HH:mm
   final String? note;
   final String? fingerprint;
 
@@ -244,6 +311,7 @@ class _Parsed {
     required this.type,
     required this.category,
     required this.date,
+    this.time,
     this.note,
     this.fingerprint,
   });

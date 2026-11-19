@@ -6,6 +6,7 @@ class TransactionModel {
   final String category;
   final String date;
   final String? note;
+  final String? time;            // 'HH:mm' when known (parsed notifications)
   final String source;           // 'manual' (default) or 'auto' (future parsed)
   final String? rawNotification; // Original bank notification text (future use)
 
@@ -17,6 +18,7 @@ class TransactionModel {
     required this.category,
     required this.date,
     this.note,
+    this.time,
     this.source = 'manual',
     this.rawNotification,
   });
@@ -29,6 +31,7 @@ class TransactionModel {
     'category': category,
     'date': date,
     'note': note,
+    'time': time,
     'source': source,
     'rawNotification': rawNotification,
   };
@@ -42,6 +45,7 @@ class TransactionModel {
         category: map['category'] as String,
         date: map['date'] as String,
         note: map['note'] as String?,
+        time: map['time'] as String?,
         source: map['source'] as String? ?? 'manual',
         rawNotification: map['rawNotification'] as String?,
       );

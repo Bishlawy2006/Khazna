@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../db/database_helper.dart';
 import '../models/transaction_model.dart';
 import '../theme/app_theme.dart';
+import '../widgets/analysis_charts.dart';
 
 class AnalysisScreen extends StatefulWidget {
   const AnalysisScreen({super.key});
@@ -18,6 +19,9 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
 
   // Month navigator: offset from current month (0 = this month, -1 = last, etc.)
   int _monthOffset = 0;
+
+  // Chart option: 0 = Daily histogram, 1 = Trends (6 months + pace).
+  int _chartView = 0;
 
   @override
   void initState() {
@@ -89,6 +93,64 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
     return sorted;
   }
 
+  // ─── Chart data ────────────────────────────────────────
+
+  static const _mon = [
+    '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+
+  int _daysIn(DateTime m) => DateTime(m.year, m.month + 1, 0).day;
+
+  /// Expense per day for [m]; index 0 = day 1.
+  List<double> _dailyExpenses(DateTime m) {
+    final out = List<double>.filled(_daysIn(m), 0);
+    for (final tx in _allTx) {
+      if (tx.type != 'expense') continue;
+      final d = DateTime.parse(tx.date);
+      if (d.year == m.year && d.month == m.month) out[d.day - 1] += tx.amount;
+    }
+    return out;
+  }
+
+  /// Last day of [m] that has already happened.
+  int _lastDay(DateTime m) {
+    final now = DateTime.now();
+    final isCurrent = m.year == now.year && m.month == now.month;
+    return isCurrent ? now.day : _daysIn(m);
+  }
+
+  List<double> _cumulative(List<double> daily, int upTo) {
+    final out = <double>[];
+    var run = 0.0;
+    for (var i = 0; i < upTo && i < daily.length; i++) {
+      run += daily[i];
+      out.add(run);
+    }
+    return out;
+  }
+
+  /// Income / expense totals for the six months ending at the selected one.
+  List<MonthTotals> _lastSixMonths() {
+    final sel = _selectedMonth;
+    final result = <MonthTotals>[];
+    for (var i = 5; i >= 0; i--) {
+      final m = DateTime(sel.year, sel.month - i);
+      var inc = 0.0, exp = 0.0;
+      for (final tx in _allTx) {
+        final d = DateTime.parse(tx.date);
+        if (d.year != m.year || d.month != m.month) continue;
+        if (tx.type == 'income') {
+          inc += tx.amount;
+        } else {
+          exp += tx.amount;
+        }
+      }
+      result.add(MonthTotals(_mon[m.month], inc, exp));
+    }
+    return result;
+  }
+
   String _monthLabel(DateTime dt) {
     const months = ['', 'January', 'February', 'March', 'April', 'May', 'June',
       'July', 'August', 'September', 'October', 'November', 'December'];
@@ -124,6 +186,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                     _buildEmpty()
                   else ...[
                     _buildVsLastMonth(),
+                    _buildChartSection(),
                     if (_monthOffset == 0 && _budgets.isNotEmpty)
                       _buildBudgetOverview(),
                     _buildCategoryBreakdown('Expenses', _expenseByCategory, _totalExpense, AppColors.error, budgets: _budgets),
@@ -134,6 +197,170 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
               ),
             ),
     );
+  }
+
+  // ─── Charts (option switch: Daily | Trends) ────────────
+
+  Widget _buildChartSection() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SegmentedButton<int>(
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(
+                value: 0,
+                icon: Icon(Icons.bar_chart_rounded, size: 18),
+                label: Text('Daily'),
+              ),
+              ButtonSegment(
+                value: 1,
+                icon: Icon(Icons.show_chart_rounded, size: 18),
+                label: Text('Trends'),
+              ),
+            ],
+            selected: {_chartView},
+            onSelectionChanged: (v) => setState(() => _chartView = v.first),
+            style: SegmentedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: AppColors.textSecondary,
+              selectedBackgroundColor: AppColors.primary,
+              selectedForegroundColor: Colors.white,
+              minimumSize: const Size(0, 44),
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (_chartView == 0) _buildDailyCard() else ..._buildTrendCards(),
+        ],
+      ),
+    );
+  }
+
+  Widget _chartCard({
+    required String title,
+    required String subtitle,
+    required Widget chart,
+    Widget? legend,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: AppShadows.card,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: Text(title, style: AppTextStyles.sectionTitle)),
+              Text(subtitle, style: AppTextStyles.secondary),
+            ],
+          ),
+          if (legend != null) ...[
+            const SizedBox(height: 8),
+            legend,
+          ],
+          const SizedBox(height: 10),
+          chart,
+        ],
+      ),
+    );
+  }
+
+  Widget _legendItem(String label, Color color, {bool line = false}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: line ? 16 : 10,
+          height: line ? 3 : 10,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(line ? 2 : 3),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(label, style: AppTextStyles.secondary.copyWith(fontSize: 12)),
+      ],
+    );
+  }
+
+  Widget _buildDailyCard() {
+    final m = _selectedMonth;
+    final daily = _dailyExpenses(m);
+    final last = _lastDay(m);
+    var peak = 0.0;
+    var peakDay = 0;
+    for (var i = 0; i < last && i < daily.length; i++) {
+      if (daily[i] > peak) {
+        peak = daily[i];
+        peakDay = i + 1;
+      }
+    }
+    return _chartCard(
+      title: 'Daily spending',
+      subtitle: '${_mon[m.month]}, EGP',
+      chart: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          DailySpendChart(daily: daily, lastDay: last),
+          if (peak > 0) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Biggest day: $peakDay ${_mon[m.month]}, EGP ${_fmt(peak)}',
+              style: AppTextStyles.secondary.copyWith(fontSize: 12),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildTrendCards() {
+    final m = _selectedMonth;
+    final prev = DateTime(m.year, m.month - 1);
+    final curDaily = _dailyExpenses(m);
+    final prevDaily = _dailyExpenses(prev);
+    final cur = _cumulative(curDaily, _lastDay(m));
+    final prv = _cumulative(prevDaily, prevDaily.length);
+
+    return [
+      _chartCard(
+        title: 'Income vs spending',
+        subtitle: 'Last 6 months, EGP',
+        legend: Row(
+          children: [
+            _legendItem('Income', ChartColors.primary),
+            const SizedBox(width: 16),
+            _legendItem('Spending', ChartColors.secondary),
+          ],
+        ),
+        chart: MonthlyBarsChart(months: _lastSixMonths()),
+      ),
+      _chartCard(
+        title: 'Pace this month',
+        subtitle: 'Cumulative, EGP',
+        legend: Row(
+          children: [
+            _legendItem(_mon[m.month], ChartColors.primary, line: true),
+            const SizedBox(width: 16),
+            _legendItem(_mon[prev.month], ChartColors.previous, line: true),
+          ],
+        ),
+        chart: PaceChart(
+          current: cur,
+          previous: prv,
+          monthDays: curDaily.length,
+          currentLabel: _mon[m.month],
+          previousLabel: _mon[prev.month],
+        ),
+      ),
+    ];
   }
 
   Widget _buildMonthNavigator() {

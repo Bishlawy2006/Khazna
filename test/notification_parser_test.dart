@@ -21,6 +21,12 @@ const ipnReceived =
     'يوم  11-11-2026 الساعة  20:19 رقم المعاملة 1727e69b '
     'للمساعدة www.mashreq.com/mashreqipn';
 
+// Telda push alert (as shown by the app) and the sentence the Wallet
+// "Transaction" automation rebuilds from Merchant + Amount.
+const teldaPush =
+    'You spent EGP 89 at German University in Cairo\nBalance: EGP 184.01';
+const teldaWallet = 'Telda: You spent EGP EGP 89.00 at Guc - Copy Mensa 11';
+
 void main() {
   group('NotificationParser', () {
     test('El Ahly card purchase', () {
@@ -30,6 +36,7 @@ void main() {
       expect(tx.category, 'Card Payment');
       expect(tx.date, '2026-11-14');
       expect(tx.note, 'GUC - COPY MENSA 9');
+      expect(tx.time, '12:26');
       expect(tx.source, 'auto');
       expect(tx.rawNotification, 'nbe|109.0|2026-11-14|12:26|GUC - COPY MENSA 9');
     });
@@ -50,6 +57,7 @@ void main() {
       expect(tx.type, 'expense');
       expect(tx.category, 'Transfer');
       expect(tx.date, '2026-11-12');
+      expect(tx.time, '21:01');
       expect(tx.rawNotification, 'ipn|ebca3042');
     });
 
@@ -60,6 +68,39 @@ void main() {
       expect(tx.date, '2026-11-11');
       expect(tx.note, 'Instapay from اسم المرسل');
       expect(tx.rawNotification, 'ipn|1727e69b');
+    });
+
+    test('Telda push alert: amount, place, date and time', () {
+      final tx = NotificationParser.parse(teldaPush,
+          accountId: 4, receivedAt: DateTime(2026, 11, 19, 14, 16))!;
+      expect(tx.amount, 89);
+      expect(tx.type, 'expense');
+      expect(tx.category, 'Card Payment');
+      expect(tx.note, 'German University in Cairo');
+      expect(tx.date, '2026-11-19');
+      expect(tx.time, '14:16');
+      expect(tx.source, 'auto');
+      expect(tx.rawNotification,
+          'telda|89.0|2026-11-19|14:16|German University in Cairo');
+    });
+
+    test('Telda sentence rebuilt by the Wallet automation', () {
+      final tx = NotificationParser.parse(teldaWallet,
+          accountId: 4, receivedAt: DateTime(2026, 11, 19, 14, 16))!;
+      expect(tx.amount, 89);
+      expect(tx.note, 'Guc - Copy Mensa 11');
+      expect(tx.type, 'expense');
+    });
+
+    test('Telda: declined and foreign-currency alerts are rejected', () {
+      expect(NotificationParser.parse('Declined • EGP 89.00', accountId: 4),
+          isNull);
+      expect(
+          NotificationParser.parse(
+              'Telda: Declined. You spent EGP 89 at GUC', accountId: 4),
+          isNull);
+      expect(NotificationParser.parse('You spent USD 5 at Amazon', accountId: 4),
+          isNull);
     });
 
     test('Arabic-Indic digits and invisible bidi marks are handled', () {
@@ -73,7 +114,7 @@ void main() {
 
     test('direction: paid vs received is never mixed up', () {
       // Money OUT
-      for (final sms in [nbePurchase, mashreqCard, ipnSent]) {
+      for (final sms in [nbePurchase, mashreqCard, ipnSent, teldaPush]) {
         expect(NotificationParser.parse(sms, accountId: 1)!.type, 'expense',
             reason: sms);
       }
@@ -117,6 +158,7 @@ void main() {
       BankModel(id: 1, name: 'El Ahly'),
       BankModel(id: 2, name: 'El Mashreq'),
       BankModel(id: 3, name: 'CIB'),
+      BankModel(id: 4, name: 'Telda'),
     ];
 
     test('recognises each sample without a bank name in it', () {
@@ -124,6 +166,8 @@ void main() {
       expect(BankIdentifier.matchBank(mashreqCard, banks)?.id, 2);
       expect(BankIdentifier.matchBank(ipnSent, banks)?.id, 2);
       expect(BankIdentifier.matchBank(ipnReceived, banks)?.id, 2);
+      expect(BankIdentifier.matchBank(teldaPush, banks)?.id, 4);
+      expect(BankIdentifier.matchBank(teldaWallet, banks)?.id, 4);
     });
 
     test('tolerates different names the user may have typed', () {

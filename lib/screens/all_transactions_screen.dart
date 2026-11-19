@@ -360,7 +360,7 @@ class _AllTransactionsScreenState extends State<AllTransactionsScreen> {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      '•  ${tx.date}',
+                      '•  ${tx.date}${tx.time != null ? ' ${tx.time}' : ''}',
                       style: TextStyle(
                           fontSize: 11, color: Colors.grey.shade400),
                     ),
