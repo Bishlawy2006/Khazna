@@ -25,8 +25,12 @@ workflows:
         script: |
           set -o pipefail
           flutter build ios --release --no-codesign -v 2>&1 | tee build.log || {
-            echo "=== ERROR LINES FROM THE BUILD ==="
-            grep -n -E "error:|Error \(Xcode\)|requires a development team|Signing for|Command .* failed" build.log | head -60
+            echo "=== 70 LINES BEFORE THE FIRST SCRIPT FAILURE ==="
+            grep -n -B70 -m1 "Command PhaseScriptExecution failed" build.log
+            echo "=== SCRIPT PHASES SEEN ==="
+            grep -n "PhaseScriptExecution" build.log | head -15
+            echo "=== ERROR LINES ==="
+            grep -n -E "error:|Error \(Xcode\)|requires a development team|Signing for" build.log | head -40
             exit 1
           }
       - name: Package Runner.app into an .ipa

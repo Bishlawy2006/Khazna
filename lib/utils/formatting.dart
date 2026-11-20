@@ -1,4 +1,4 @@
-/// Display helpers shared by every screen. No intl dependency.
+// Display helpers shared by every screen. No intl dependency.
 
 /// 12345.5 -> "12,345.50"; with decimals: 0 -> "12,346". Negative values keep
 /// their sign ("-1,200.00"); a value that rounds to zero never shows "-0.00".

@@ -109,8 +109,9 @@ class AutoTransactionService {
       final bank = BankIdentifier.bankForKey(bankKey, await _db.getAllBanks());
       if (bank == null) return SmsOutcome.unparsed;
       final accounts = await _db.getAccountsForBank(bank.id!);
-      account = accounts.where((a) => a.type == 'current').firstOrNull;
-      if (account == null) return SmsOutcome.unparsed;
+      final current = accounts.where((a) => a.type == 'current').firstOrNull;
+      if (current == null) return SmsOutcome.unparsed;
+      account = current;
       bankName = bank.name;
     }
 

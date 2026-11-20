@@ -7,7 +7,7 @@ import '../models/transaction_model.dart';
 ///   * El Ahly / NBE  — direct-debit card purchase  ("تم خصم ... عند ...")
 ///   * El Mashreq     — card purchase               ("... has been used at ... for EGP ...")
 ///   * El Mashreq     — Instapay sent / received    ("قمت بتحويل لحظي" / "استقبلت تحويل لحظي")
-///   * Telda          — card purchase               ("You spent EGP 89 at <merchant>")
+///   * Telda          — card purchase               ("You spent EGP 89 at MERCHANT")
 ///   * Telda          — money received              ("@handle Sent you EGP 20")
 ///
 /// Every message is split into: category, amount, date, time and place
