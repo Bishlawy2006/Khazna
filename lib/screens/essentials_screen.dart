@@ -6,6 +6,7 @@ import '../models/essential_model.dart';
 import '../models/transaction_model.dart';
 import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/formatting.dart';
 
 class EssentialsScreen extends StatefulWidget {
   const EssentialsScreen({super.key});
@@ -145,7 +146,7 @@ class _EssentialsScreenState extends State<EssentialsScreen> {
                   style: const TextStyle(
                       fontWeight: FontWeight.w600, fontSize: 14)),
               subtitle: Text(
-                'EGP ${balance.toStringAsFixed(2)}${canCover ? '' : ' — insufficient'}',
+                'EGP ${fmtMoney(balance)}${canCover ? '' : ' — insufficient'}',
                 style: TextStyle(
                     fontSize: 12,
                     color: canCover
@@ -174,6 +175,7 @@ class _EssentialsScreenState extends State<EssentialsScreen> {
       type: 'expense',
       category: e.name,
       date: today,
+      time: nowTimeIfToday(DateTime.now()),
       note: 'from essentials',
     );
 
@@ -235,7 +237,7 @@ class _EssentialsScreenState extends State<EssentialsScreen> {
         title: const Text('Delete Transaction?',
             style: TextStyle(fontWeight: FontWeight.bold)),
         content: Text(
-          'This will permanently delete the EGP ${e.amount.toStringAsFixed(2)} '
+          'This will permanently delete the EGP ${fmtMoney(e.amount)} '
           'expense for "${e.name}" from $accountLabel and restore the balance.\n\n'
           'Are you sure you want to continue?',
           style: const TextStyle(height: 1.5),
@@ -1134,7 +1136,7 @@ class _EssentialsScreenState extends State<EssentialsScreen> {
     );
   }
 
-  String _fmt(double v) => v.toStringAsFixed(2);
+  String _fmt(double v) => fmtMoney(v);
 }
 
 // ─── Inline savings target field ───────────────────────────────────────────

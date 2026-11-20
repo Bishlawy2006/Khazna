@@ -3,6 +3,7 @@ import '../models/account_model.dart';
 import '../models/certificate_model.dart';
 import '../db/database_helper.dart';
 import '../theme/app_theme.dart';
+import '../utils/formatting.dart';
 
 class CertificateDetailScreen extends StatefulWidget {
   final AccountModel account;
@@ -517,7 +518,7 @@ class _CertificateDetailScreenState extends State<CertificateDetailScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'EGP ${monthly.toStringAsFixed(2)}',
+                  'EGP ${fmtMoney(monthly)}',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 30,
@@ -548,7 +549,7 @@ class _CertificateDetailScreenState extends State<CertificateDetailScreen> {
             child: Column(
               children: [
                 _infoRow(Icons.account_balance_wallet, 'Principal',
-                    'EGP ${cert.principal.toStringAsFixed(2)}'),
+                    'EGP ${fmtMoney(cert.principal)}'),
                 _divider(),
                 _infoRow(Icons.percent, 'Annual Rate',
                     '$ratePercent%'),

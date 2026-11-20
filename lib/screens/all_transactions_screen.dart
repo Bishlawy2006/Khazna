@@ -3,6 +3,7 @@ import '../db/database_helper.dart';
 import '../models/account_model.dart';
 import '../models/transaction_model.dart';
 import '../theme/app_theme.dart';
+import '../utils/formatting.dart';
 
 class AllTransactionsScreen extends StatefulWidget {
   const AllTransactionsScreen({super.key});
@@ -150,7 +151,7 @@ class _AllTransactionsScreenState extends State<AllTransactionsScreen> {
           ),
           const SizedBox(height: 4),
           Text(
-            'EGP ${amount.toStringAsFixed(2)}',
+            'EGP ${fmtMoney(amount)}',
             style: TextStyle(
               color: color,
               fontSize: 16,
@@ -383,7 +384,7 @@ class _AllTransactionsScreenState extends State<AllTransactionsScreen> {
           ),
           const SizedBox(width: 8),
           Text(
-            '${isIncome ? '+' : '-'} EGP ${tx.amount.toStringAsFixed(2)}',
+            '${isIncome ? '+' : '-'} EGP ${fmtMoney(tx.amount)}',
             style: TextStyle(
               fontWeight: FontWeight.bold,
               color:

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../db/database_helper.dart';
 import '../models/budget_model.dart';
 import '../theme/app_theme.dart';
+import '../utils/formatting.dart';
 
 const _commonCategories = [
   'Food', 'Transport', 'Shopping', 'Bills', 'Health',
@@ -385,8 +386,8 @@ class _BudgetScreenState extends State<BudgetScreen> {
                               color: AppColors.textPrimary)),
                       Text(
                         isOver
-                            ? 'Over by EGP ${(spent - budget.monthlyLimit).toStringAsFixed(2)}'
-                            : 'EGP ${(budget.monthlyLimit - spent).toStringAsFixed(2)} remaining',
+                            ? 'Over by EGP ${fmtMoney(spent - budget.monthlyLimit)}'
+                            : 'EGP ${fmtMoney(budget.monthlyLimit - spent)} remaining',
                         style: TextStyle(
                             fontSize: 12,
                             color: isOver ? AppColors.error : AppColors.textSecondary),
@@ -425,12 +426,12 @@ class _BudgetScreenState extends State<BudgetScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('EGP ${spent.toStringAsFixed(2)} spent',
+                Text('EGP ${fmtMoney(spent)} spent',
                     style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                         color: barColor)),
-                Text('Limit: EGP ${budget.monthlyLimit.toStringAsFixed(2)}',
+                Text('Limit: EGP ${fmtMoney(budget.monthlyLimit)}',
                     style: const TextStyle(
                         fontSize: 12, color: AppColors.textSecondary)),
               ],

@@ -25,6 +25,7 @@ const ipnReceived =
 // "Transaction" automation rebuilds from Merchant + Amount.
 const teldaPush =
     'You spent EGP 89 at German University in Cairo\nBalance: EGP 184.01';
+const teldaReceived = '@yassinashraf3110 Sent you EGP 20';
 const teldaWallet = 'Telda: You spent EGP EGP 89.00 at Guc - Copy Mensa 11';
 
 void main() {
@@ -168,6 +169,7 @@ void main() {
       expect(BankIdentifier.matchBank(ipnReceived, banks)?.id, 2);
       expect(BankIdentifier.matchBank(teldaPush, banks)?.id, 4);
       expect(BankIdentifier.matchBank(teldaWallet, banks)?.id, 4);
+      expect(BankIdentifier.matchBank(teldaReceived, banks)?.id, 4);
     });
 
     test('tolerates different names the user may have typed', () {
@@ -179,6 +181,36 @@ void main() {
     test('does not match unrelated text or a hotline inside an amount', () {
       expect(BankIdentifier.matchBank('EGP', banks), isNull);
       expect(BankIdentifier.matchBank('Balance 119623.50 EGP', banks), isNull);
+    });
+  });
+
+  group('Telda received', () {
+    final at = DateTime(2026, 11, 20, 13, 30);
+
+    test('parses "@handle Sent you EGP 20" as income', () {
+      final tx = NotificationParser.parse(teldaReceived, accountId: 4, receivedAt: at)!;
+      expect(tx.type, 'income');
+      expect(tx.amount, 20);
+      expect(tx.category, 'Transfer');
+      expect(tx.note, 'From @yassinashraf3110');
+      expect(tx.date, '2026-11-20');
+      expect(tx.time, '13:30');
+    });
+
+    test('handles thousands separators and decimals', () {
+      final tx = NotificationParser.parse('@sara.a Sent you EGP 1,250.50',
+          accountId: 4, receivedAt: at)!;
+      expect(tx.amount, 1250.5);
+    });
+
+    test('rejects other currencies and messages without a handle', () {
+      expect(NotificationParser.parse('@sara Sent you USD 20', accountId: 4, receivedAt: at), isNull);
+      expect(NotificationParser.parse('Sent you EGP 20', accountId: 4, receivedAt: at), isNull);
+    });
+
+    test('a purchase is still an expense', () {
+      final tx = NotificationParser.parse(teldaPush, accountId: 4, receivedAt: at)!;
+      expect(tx.type, 'expense');
     });
   });
 }

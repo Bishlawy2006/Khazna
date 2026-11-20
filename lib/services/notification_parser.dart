@@ -8,6 +8,7 @@ import '../models/transaction_model.dart';
 ///   * El Mashreq     — card purchase               ("... has been used at ... for EGP ...")
 ///   * El Mashreq     — Instapay sent / received    ("قمت بتحويل لحظي" / "استقبلت تحويل لحظي")
 ///   * Telda          — card purchase               ("You spent EGP 89 at <merchant>")
+///   * Telda          — money received              ("@handle Sent you EGP 20")
 ///
 /// Every message is split into: category, amount, date, time and place
 /// (merchant, stored as the note). Telda alerts are push notifications that
@@ -49,6 +50,7 @@ class NotificationParser {
       ?_parseInstapaySent(text),
       ?_parseInstapayReceived(text),
       ?_parseTeldaPurchase(text, now),
+      ?_parseTeldaReceived(text, now),
     ];
     if (candidates.isEmpty) return null;
     if (candidates.any((c) => c.type != candidates.first.type)) return null;
@@ -292,6 +294,33 @@ class NotificationParser {
       note: merchant,
       // No reference number: date + minute + amount + merchant.
       fingerprint: 'telda|$amount|$date|$time|$merchant',
+    );
+  }
+
+  // "@yassinashraf3110 Sent you EGP 20" — a Telda transfer arriving.
+  // Like the purchase alert it has no date/time, so the receive moment is used.
+  // Only EGP, only a clearly-formed "@handle sent you <amount>" is accepted.
+  static final _teldaReceived = RegExp(
+    r'(?:^|\s)@([\w.]+)\s+sent you\s+(?:(?:EGP|E£|LE)\s?)*' + _amt + r'(?!\d)(?:\s?EGP)?',
+    caseSensitive: false,
+  );
+
+  static _Parsed? _parseTeldaReceived(String text, DateTime receivedAt) {
+    final m = _teldaReceived.firstMatch(text);
+    if (m == null) return null;
+    final sender = m.group(1)!;
+    final amount = _amount(m.group(2)!);
+    if (amount == null) return null;
+    final date = _dateOf(receivedAt);
+    final time = _timeOf(receivedAt);
+    return _Parsed(
+      amount: amount,
+      type: 'income',
+      category: 'Transfer',
+      date: date,
+      time: time,
+      note: 'From @$sender',
+      fingerprint: 'telda_in|$amount|$date|$time|$sender',
     );
   }
 }

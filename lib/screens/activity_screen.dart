@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import '../db/database_helper.dart';
 import '../models/activity_log_model.dart';
 import '../theme/app_theme.dart';
+import '../utils/bank_icons.dart';
+import '../utils/formatting.dart';
 
+/// Activity feed: one calm line per event (bank logo, name, amount), grouped
+/// by day. A single row of chips filters by bank; "All" shows everything.
 class ActivityScreen extends StatefulWidget {
   const ActivityScreen({super.key});
 
@@ -13,7 +17,7 @@ class ActivityScreen extends StatefulWidget {
 class _ActivityScreenState extends State<ActivityScreen> {
   final _db = DatabaseHelper.instance;
   List<ActivityLogModel> _logs = [];
-  String _filter = 'All'; // 'All', 'Income', 'Expense', 'Update', 'Deleted'
+  String? _bank; // null = All
   bool _loading = true;
 
   @override
@@ -24,7 +28,13 @@ class _ActivityScreenState extends State<ActivityScreen> {
 
   Future<void> _load() async {
     final logs = await _db.getActivityLogs();
-    if (mounted) setState(() { _logs = logs; _loading = false; });
+    if (!mounted) return;
+    setState(() {
+      _logs = logs;
+      _loading = false;
+      // The selected bank may have no entries any more (e.g. history cleared).
+      if (_bank != null && !logs.any((l) => l.bankName == _bank)) _bank = null;
+    });
   }
 
   Future<void> _markAllRead() async {
@@ -37,9 +47,12 @@ class _ActivityScreenState extends State<ActivityScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Clear all activity?'),
-        content: const Text('This will permanently delete all activity history.'),
+        content:
+            const Text('This will permanently delete all activity history.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: AppColors.error),
             onPressed: () => Navigator.pop(ctx, true),
@@ -54,22 +67,29 @@ class _ActivityScreenState extends State<ActivityScreen> {
     }
   }
 
-  List<ActivityLogModel> get _filtered {
-    if (_filter == 'All') return _logs;
-    if (_filter == 'Income') return _logs.where((l) => l.type == 'income').toList();
-    if (_filter == 'Expense') return _logs.where((l) => l.type == 'expense').toList();
-    if (_filter == 'Update') return _logs.where((l) => l.type == 'update').toList();
-    if (_filter == 'Deleted') return _logs.where((l) => l.action == 'deleted').toList();
-    return _logs;
+  // ─── Data shaping ──────────────────────────────────────
+
+  /// Banks that have at least one entry, most recently active first
+  /// (the log list is already newest-first).
+  List<String> get _banks {
+    final seen = <String>[];
+    for (final l in _logs) {
+      final b = l.bankName;
+      if (b != null && b.isNotEmpty && !seen.contains(b)) seen.add(b);
+    }
+    return seen;
   }
 
-  // Group logs by date label
-  Map<String, List<ActivityLogModel>> get _grouped {
-    final result = <String, List<ActivityLogModel>>{};
+  List<ActivityLogModel> get _filtered =>
+      _bank == null ? _logs : _logs.where((l) => l.bankName == _bank).toList();
+
+  /// Flat list for the ListView: a String is a day header, a model is a row.
+  List<Object> _items() {
+    final items = <Object>[];
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = today.subtract(const Duration(days: 1));
-
+    String? lastLabel;
     for (final log in _filtered) {
       final dt = DateTime.parse(log.dateTime);
       final day = DateTime(dt.year, dt.month, dt.day);
@@ -79,239 +99,271 @@ class _ActivityScreenState extends State<ActivityScreen> {
       } else if (day == yesterday) {
         label = 'Yesterday';
       } else {
-        label = '${dt.day} ${_monthName(dt.month)} ${dt.year}';
+        label = dt.year == now.year
+            ? '${dt.day} ${_mon(dt.month)}'
+            : '${dt.day} ${_mon(dt.month)} ${dt.year}';
       }
-      result.putIfAbsent(label, () => []).add(log);
+      if (label != lastLabel) {
+        items.add(label);
+        lastLabel = label;
+      }
+      items.add(log);
     }
-    return result;
+    return items;
   }
 
-  String _monthName(int m) {
-    const months = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return months[m];
+  static const _months = [
+    '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+  String _mon(int m) => _months[m];
+
+  /// Short name of the entry: the place / category, not a sentence.
+  String _titleOf(ActivityLogModel l) {
+    final c = l.category?.trim();
+    final hasCategory = c != null && c.isNotEmpty;
+    switch (l.action) {
+      case 'added':
+        return hasCategory ? c : l.title;
+      case 'edited':
+        return hasCategory ? 'Edited $c' : 'Edited';
+      case 'deleted':
+        return hasCategory ? 'Deleted $c' : 'Deleted';
+      case 'balance_updated':
+        return 'Balance updated';
+      default:
+        return l.title;
+    }
   }
+
+  // ─── Build ─────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    final grouped = _grouped;
-    final groupKeys = grouped.keys.toList();
     final unread = _logs.where((l) => !l.isRead).length;
+    final banks = _banks;
+    final items = _items();
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        title: const Text('Activity', style: TextStyle(fontWeight: FontWeight.w600)),
-        actions: [
+      body: SafeArea(
+        bottom: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                children: [
+                  _header(unread),
+                  if (banks.isNotEmpty) _chips(banks),
+                  Expanded(
+                    child: items.isEmpty
+                        ? _empty()
+                        : RefreshIndicator(
+                            onRefresh: _load,
+                            child: ListView.builder(
+                              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                              itemCount: items.length,
+                              itemBuilder: (_, i) {
+                                final it = items[i];
+                                return it is String
+                                    ? _dayHeader(it)
+                                    : _row(it as ActivityLogModel);
+                              },
+                            ),
+                          ),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  Widget _header(int unread) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 12, 12, 0),
+      child: Row(
+        children: [
+          const Text(
+            'Activity',
+            style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary),
+          ),
+          const Spacer(),
           if (unread > 0)
-            TextButton.icon(
+            IconButton(
+              tooltip: 'Mark all as read',
               onPressed: _markAllRead,
-              icon: const Icon(Icons.done_all, color: Colors.white70, size: 18),
-              label: const Text('Mark all read', style: TextStyle(color: Colors.white70, fontSize: 12)),
+              icon: const Icon(Icons.done_all_rounded,
+                  color: AppColors.textPrimary),
             ),
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, color: Colors.white),
-            onSelected: (v) { if (v == 'clear') _clearAll(); },
-            itemBuilder: (_) => [
-              const PopupMenuItem(value: 'clear', child: Text('Clear all history')),
+            tooltip: 'More options',
+            icon: const Icon(Icons.more_vert, color: AppColors.textPrimary),
+            onSelected: (v) {
+              if (v == 'clear') _clearAll();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'clear', child: Text('Clear all history')),
             ],
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                _buildFilterBar(),
-                Expanded(
-                  child: _filtered.isEmpty
-                      ? _buildEmpty()
-                      : RefreshIndicator(
-                          onRefresh: _load,
-                          child: ListView.builder(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            itemCount: groupKeys.fold<int>(0, (sum, k) => sum + 1 + grouped[k]!.length),
-                            itemBuilder: (ctx, i) {
-                              int offset = 0;
-                              for (final key in groupKeys) {
-                                if (i == offset) return _dateHeader(key);
-                                offset++;
-                                final items = grouped[key]!;
-                                if (i < offset + items.length) {
-                                  return _logTile(items[i - offset]);
-                                }
-                                offset += items.length;
-                              }
-                              return const SizedBox.shrink();
-                            },
-                          ),
-                        ),
-                ),
-              ],
-            ),
     );
   }
 
-  Widget _buildFilterBar() {
-    const filters = ['All', 'Income', 'Expense', 'Update', 'Deleted'];
-    return Container(
-      color: Colors.white,
-      child: SingleChildScrollView(
+  Widget _chips(List<String> banks) {
+    final labels = ['All', ...banks];
+    return SizedBox(
+      height: 52,
+      child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          children: filters.map((f) {
-            final selected = _filter == f;
-            return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: FilterChip(
-                label: Text(f),
-                selected: selected,
-                onSelected: (_) => setState(() => _filter = f),
-                selectedColor: AppColors.primaryFaded,
-                checkmarkColor: AppColors.primary,
-                labelStyle: TextStyle(
-                  color: selected ? AppColors.primary : AppColors.textSecondary,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-                  fontSize: 13,
+        padding: const EdgeInsets.fromLTRB(24, 4, 24, 4),
+        itemCount: labels.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          final label = labels[i];
+          final selected = i == 0 ? _bank == null : _bank == label;
+          return Semantics(
+            button: true,
+            selected: selected,
+            label: label,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(22),
+              onTap: () => setState(() => _bank = i == 0 ? null : label),
+              child: Container(
+                height: 44,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: selected ? AppColors.primaryFaded : Colors.transparent,
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                    color:
+                        selected ? AppColors.primary : AppColors.textSecondary,
+                  ),
                 ),
               ),
-            );
-          }).toList(),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
 
-  Widget _dateHeader(String label) {
+  Widget _dayHeader(String label) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      padding: const EdgeInsets.only(top: 18, bottom: 6),
       child: Text(
         label,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-          color: AppColors.textSecondary,
-          letterSpacing: 0.5,
-        ),
+        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
       ),
     );
   }
 
-  Widget _logTile(ActivityLogModel log) {
+  Widget _row(ActivityLogModel log) {
     final isUnread = !log.isRead;
-    final icon = _iconForAction(log.action, log.type);
-    final iconColor = _colorForType(log.type);
+    final amount = log.amount;
 
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-      decoration: BoxDecoration(
-        color: isUnread ? AppColors.primaryFaded.withValues(alpha: 0.4) : Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: isUnread
-            ? Border.all(color: AppColors.primaryLight.withValues(alpha: 0.3))
-            : null,
-        boxShadow: isUnread ? null : AppShadows.card,
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-        leading: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: iconColor.withValues(alpha: 0.12),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, color: iconColor, size: 20),
-        ),
-        title: Text(
-          log.title,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: isUnread ? FontWeight.w600 : FontWeight.w500,
-            color: AppColors.textPrimary,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 2),
-            Text(
-              log.message,
-              style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.3),
-              maxLines: 2,
+    // Direction is shown by the sign and colour of the amount: green for money
+    // in, plain ink for money out, grey for edits / deletes / balance changes.
+    String? amountText;
+    Color amountColor = AppColors.textSecondary;
+    if (amount != null) {
+      if (log.action == 'added') {
+        final income = log.type == 'income';
+        amountText = '${income ? '+' : '-'}${fmtMoney(amount)}';
+        amountColor = income ? AppColors.success : AppColors.textPrimary;
+      } else {
+        amountText = fmtMoney(amount);
+      }
+    }
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 56),
+      child: Row(
+        children: [
+          _bankTile(log.bankName),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              _titleOf(log),
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: isUnread ? FontWeight.w600 : FontWeight.w500,
+                color: AppColors.textPrimary,
+              ),
             ),
-            const SizedBox(height: 4),
+          ),
+          if (amountText != null) ...[
+            const SizedBox(width: 12),
             Text(
-              _formatTime(log.dateTime),
-              style: TextStyle(fontSize: 11, color: AppColors.textSecondary.withValues(alpha: 0.7)),
+              amountText,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: amountColor,
+                decoration:
+                    log.action == 'deleted' ? TextDecoration.lineThrough : null,
+              ),
             ),
           ],
-        ),
-        isThreeLine: true,
-        trailing: isUnread
-            ? Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: AppColors.primaryLight,
-                  shape: BoxShape.circle,
-                ),
-              )
-            : null,
-      ),
-    );
-  }
-
-  Widget _buildEmpty() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.history_rounded, size: 64, color: AppColors.textSecondary.withValues(alpha: 0.3)),
-          const SizedBox(height: 16),
-          Text(
-            _filter == 'All' ? 'No activity yet' : 'No $_filter activity',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Your financial changes will appear here.',
-            style: TextStyle(fontSize: 13, color: AppColors.textSecondary.withValues(alpha: 0.7)),
-          ),
         ],
       ),
     );
   }
 
-  IconData _iconForAction(String action, String type) {
-    if (action == 'deleted') return Icons.delete_outline_rounded;
-    if (action == 'balance_updated') return Icons.account_balance_wallet_outlined;
-    if (action == 'edited') return Icons.edit_outlined;
-    if (type == 'income') return Icons.arrow_downward_rounded;
-    if (type == 'expense') return Icons.arrow_upward_rounded;
-    return Icons.receipt_long_outlined;
-  }
-
-  Color _colorForType(String type) {
-    switch (type) {
-      case 'income': return AppColors.success;
-      case 'expense': return AppColors.error;
-      case 'deletion': return AppColors.error;
-      default: return AppColors.primaryLight;
+  /// Round bank logo; Cash gets a banknote icon, anything unknown a neutral bell.
+  Widget _bankTile(String? bankName) {
+    final asset = bankIconAsset(bankName);
+    if (asset != null) {
+      return Semantics(
+        label: bankName,
+        child: Container(
+          width: 40,
+          height: 40,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white,
+            border: Border.all(color: AppColors.divider),
+          ),
+          child: Image.asset(asset, fit: BoxFit.cover),
+        ),
+      );
     }
+    final isCash = (bankName ?? '').toLowerCase().contains('cash');
+    return Semantics(
+      label: isCash ? 'Cash' : 'Activity',
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: isCash ? AppColors.successFaded : AppColors.primaryFaded,
+        ),
+        child: Icon(
+          isCash ? Icons.payments_outlined : Icons.notifications_none_rounded,
+          size: 20,
+          color: isCash ? AppColors.success : AppColors.primaryLight,
+        ),
+      ),
+    );
   }
 
-  String _formatTime(String iso) {
-    final dt = DateTime.parse(iso);
-    final h = dt.hour.toString().padLeft(2, '0');
-    final m = dt.minute.toString().padLeft(2, '0');
-    return '$h:$m';
+  Widget _empty() {
+    return Center(
+      child: Text(
+        _bank == null ? 'No activity yet' : 'No activity for $_bank',
+        style: const TextStyle(fontSize: 15, color: AppColors.textSecondary),
+      ),
+    );
   }
 }

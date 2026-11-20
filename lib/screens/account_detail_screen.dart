@@ -5,6 +5,7 @@ import '../models/activity_log_model.dart';
 import '../models/transaction_model.dart';
 import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/formatting.dart';
 
 class AccountDetailScreen extends StatefulWidget {
   final AccountModel account;
@@ -109,7 +110,7 @@ class _AccountDetailScreenState extends State<AccountDetailScreen> {
           ),
           const SizedBox(height: 10),
           Text(
-            'EGP ${_account.balance.toStringAsFixed(2)}',
+            'EGP ${fmtMoney(_account.balance)}',
             style: const TextStyle(
               color: Colors.white,
               fontSize: 34,
@@ -249,7 +250,7 @@ class _AccountDetailScreenState extends State<AccountDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  '${isIncome ? '+' : '-'} EGP ${tx.amount.toStringAsFixed(2)}',
+                  '${isIncome ? '+' : '-'} EGP ${fmtMoney(tx.amount)}',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: isIncome
@@ -397,6 +398,8 @@ class _AccountDetailScreenState extends State<AccountDetailScreen> {
                   note: noteCtrl.text.trim().isEmpty
                       ? null
                       : noteCtrl.text.trim(),
+                  // Time of day only when entered for today (back-dated: unknown).
+                  time: nowTimeIfToday(selectedDate),
                 );
 
                 final db = DatabaseHelper.instance;

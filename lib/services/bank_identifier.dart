@@ -44,6 +44,9 @@ class BankIdentifier {
         RegExp(r'telda', caseSensitive: false),
         // Telda purchase alert, which does not print the bank name.
         RegExp(r'\byou spent (?:(?:egp|e£|le)\s?)*\d', caseSensitive: false),
+        // Telda "money received" alert: "@handle Sent you EGP 20".
+        RegExp(r'(?:^|\s)@[\w.]+\s+sent you\s+(?:(?:egp|e£|le)\s?)*\d',
+            caseSensitive: false),
       ],
     ),
     _Known(
@@ -73,6 +76,21 @@ class BankIdentifier {
       }
     }
     return null;
+  }
+
+  /// Finds the bank a quick-entry key ('telda', 'ahly', 'mashreq', 'cib') refers
+  /// to, using the same name matching as [matchBank]. Null if the user has no
+  /// such bank.
+  static BankModel? bankForKey(String key, List<BankModel> banks) {
+    final pattern = switch (key) {
+      'ahly' => _known[0].nameMatch,
+      'cib' => _known[1].nameMatch,
+      'telda' => _known[2].nameMatch,
+      'mashreq' => _known[3].nameMatch,
+      _ => null,
+    };
+    if (pattern == null) return null;
+    return banks.where((b) => pattern.hasMatch(b.name)).firstOrNull;
   }
 
   /// Returns the asset path for the card image of a given bank name.

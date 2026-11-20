@@ -1,3 +1,5 @@
+import '../utils/formatting.dart';
+
 class ActivityLogModel {
   final int? id;
   final String action;      // 'added', 'edited', 'deleted', 'balance_updated'
@@ -75,9 +77,9 @@ class ActivityLogModel {
 
     return ActivityLogModel(
       action: 'added',
-      title: '$action EGP ${amount.toStringAsFixed(2)} — $category',
+      title: '$action EGP ${fmtMoney(amount)} — $category',
       message:
-          'You $action EGP ${amount.toStringAsFixed(2)} $prep $bankName – $accountName'
+          'You $action EGP ${fmtMoney(amount)} $prep $bankName – $accountName'
           ' at $category on $dateStr at $timeStr$noteStr.',
       amount: amount,
       bankName: bankName,
@@ -102,7 +104,7 @@ class ActivityLogModel {
       title: 'Edited: $category in $accountName',
       message:
           'Edited transaction in $bankName – $accountName: $category'
-          ' EGP ${oldAmount.toStringAsFixed(2)} → EGP ${newAmount.toStringAsFixed(2)}.',
+          ' EGP ${fmtMoney(oldAmount)} → EGP ${fmtMoney(newAmount)}.',
       amount: newAmount,
       bankName: bankName,
       accountName: accountName,
@@ -122,9 +124,9 @@ class ActivityLogModel {
     final now = DateTime.now();
     return ActivityLogModel(
       action: 'deleted',
-      title: 'Deleted: $category EGP ${amount.toStringAsFixed(2)}',
+      title: 'Deleted: $category EGP ${fmtMoney(amount)}',
       message:
-          'Deleted transaction: $category EGP ${amount.toStringAsFixed(2)}'
+          'Deleted transaction: $category EGP ${fmtMoney(amount)}'
           ' from $bankName – $accountName.',
       amount: amount,
       bankName: bankName,
@@ -144,14 +146,14 @@ class ActivityLogModel {
     final now = DateTime.now();
     final diff = newBalance - oldBalance;
     final diffStr = diff >= 0
-        ? '+EGP ${diff.toStringAsFixed(2)}'
-        : '-EGP ${diff.abs().toStringAsFixed(2)}';
+        ? '+EGP ${fmtMoney(diff)}'
+        : '-EGP ${fmtMoney(diff.abs())}';
     return ActivityLogModel(
       action: 'balance_updated',
       title: 'Balance updated: $accountName ($diffStr)',
       message:
           'Balance updated for $bankName – $accountName:'
-          ' EGP ${oldBalance.toStringAsFixed(2)} → EGP ${newBalance.toStringAsFixed(2)}.',
+          ' EGP ${fmtMoney(oldBalance)} → EGP ${fmtMoney(newBalance)}.',
       amount: newBalance,
       bankName: bankName,
       accountName: accountName,

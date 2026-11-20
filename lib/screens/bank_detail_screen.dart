@@ -5,6 +5,7 @@ import '../models/account_model.dart';
 import '../theme/app_theme.dart';
 import 'account_detail_screen.dart';
 import 'certificate_detail_screen.dart';
+import '../utils/formatting.dart';
 
 class BankDetailScreen extends StatefulWidget {
   final BankModel bank;
@@ -139,7 +140,7 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                'EGP ${_bankTotal.toStringAsFixed(2)}',
+                'EGP ${fmtMoney(_bankTotal)}',
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 26,
@@ -298,7 +299,7 @@ class _BankDetailScreenState extends State<BankDetailScreen> {
                   ),
                 ),
                 Text(
-                  'EGP ${account.balance.toStringAsFixed(2)}',
+                  'EGP ${fmtMoney(account.balance)}',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 14,

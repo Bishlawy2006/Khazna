@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -10,7 +10,8 @@ import '../db/database_helper.dart';
 import '../models/activity_log_model.dart';
 import 'auto_transaction_service.dart';
 
-/// Drains the SMS queue written by the iOS "Process Bank SMS" App Intent
+/// Drains the queue written by the iOS "Process Bank SMS" and "Add Entry"
+/// App Intents
 /// (see ios/Runner/ProcessBankSMSIntent.swift) and feeds each message into
 /// [AutoTransactionService].
 ///
@@ -105,13 +106,24 @@ class SmsQueueService {
         seen++;
         try {
           final map = jsonDecode(line) as Map<String, dynamic>;
-          final text = map['text'] as String;
           final receivedAt =
               DateTime.tryParse(map['receivedAt'] as String? ?? '')?.toLocal();
-          final outcome = await AutoTransactionService.processNotification(
-            text,
-            receivedAt: receivedAt,
-          );
+          final SmsOutcome outcome;
+          if (map['kind'] == 'entry') {
+            // Quick "Add Entry" from the lock screen / Back Tap / Shortcuts.
+            outcome = await AutoTransactionService.processQuickEntry(
+              bankKey: map['bank'] as String,
+              type: map['type'] as String,
+              amount: (map['amount'] as num).toDouble(),
+              note: map['note'] as String?,
+              receivedAt: receivedAt,
+            );
+          } else {
+            outcome = await AutoTransactionService.processNotification(
+              map['text'] as String,
+              receivedAt: receivedAt,
+            );
+          }
           switch (outcome) {
             case SmsOutcome.created:
               created++;

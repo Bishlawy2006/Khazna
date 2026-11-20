@@ -5,6 +5,7 @@ import '../models/activity_log_model.dart';
 import '../models/transaction_model.dart';
 import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/formatting.dart';
 
 class CashScreen extends StatefulWidget {
   const CashScreen({super.key});
@@ -75,7 +76,7 @@ class _CashScreenState extends State<CashScreen> {
           const Icon(Icons.payments_outlined, color: Colors.white54, size: 28),
           const SizedBox(height: 8),
           Text(
-            'EGP ${balance.toStringAsFixed(2)}',
+            'EGP ${fmtMoney(balance)}',
             style: const TextStyle(
               color: Colors.white,
               fontSize: 36,
@@ -242,7 +243,7 @@ class _CashScreenState extends State<CashScreen> {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  '${isIncome ? '+' : '-'} EGP ${tx.amount.toStringAsFixed(2)}',
+                  '${isIncome ? '+' : '-'} EGP ${fmtMoney(tx.amount)}',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: isIncome ? Colors.green.shade700 : Colors.red,
@@ -379,6 +380,8 @@ class _CashScreenState extends State<CashScreen> {
                   note: noteCtrl.text.trim().isEmpty
                       ? null
                       : noteCtrl.text.trim(),
+                  // Time of day only when entered for today (back-dated: unknown).
+                  time: nowTimeIfToday(selectedDate),
                 );
 
                 final db = DatabaseHelper.instance;

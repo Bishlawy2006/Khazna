@@ -3,6 +3,7 @@ import '../db/database_helper.dart';
 import '../models/transaction_model.dart';
 import '../theme/app_theme.dart';
 import '../widgets/analysis_charts.dart';
+import '../utils/formatting.dart';
 
 class AnalysisScreen extends StatefulWidget {
   const AnalysisScreen({super.key});
@@ -783,5 +784,5 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
     );
   }
 
-  String _fmt(double v) => v.toStringAsFixed(2);
+  String _fmt(double v) => fmtMoney(v);
 }
