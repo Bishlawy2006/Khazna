@@ -37,12 +37,85 @@ struct ProcessBankSMSIntent: AppIntent {
     }
 }
 
+// MARK: - Quick "Add Entry" action
+
+/// Which account a quick entry goes to. The raw value is what Dart receives.
+enum EntryBank: String, AppEnum {
+    case cash, telda, elAhly, mashreq
+
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Account"
+    static let caseDisplayRepresentations: [EntryBank: DisplayRepresentation] = [
+        .cash: "Cash",
+        .telda: "Telda",
+        .elAhly: "El Ahly",
+        .mashreq: "El Mashreq",
+    ]
+
+    /// Key understood by `BankIdentifier.bankForKey` on the Dart side.
+    var key: String {
+        switch self {
+        case .cash: return "cash"
+        case .telda: return "telda"
+        case .elAhly: return "ahly"
+        case .mashreq: return "mashreq"
+        }
+    }
+}
+
+enum EntryKind: String, AppEnum {
+    case expense, income
+
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Type"
+    static let caseDisplayRepresentations: [EntryKind: DisplayRepresentation] = [
+        .expense: "Money out",
+        .income: "Money in",
+    ]
+}
+
+/// "Add Entry" — logs money in or out of one account in one tap, from the lock
+/// screen, Back Tap or Shortcuts. Typical uses:
+///   * Cash spent            → Account: Cash,  Type: Money out
+///   * Telda transfer arrived → Account: Telda, Type: Money in
+///
+/// Same design as [ProcessBankSMSIntent]: runs in the app process, no UI, only
+/// appends one JSON line to the queue. Dart inserts it the next time Khazna
+/// opens. The amount is validated here AND in Dart.
+struct AddEntryIntent: AppIntent {
+    static let title: LocalizedStringResource = "Add Entry"
+    static let description = IntentDescription(
+        "Logs money in or out of one of your accounts in Khazna."
+    )
+
+    @Parameter(title: "Account", default: .cash)
+    var bank: EntryBank
+
+    @Parameter(title: "Type", default: .expense)
+    var kind: EntryKind
+
+    @Parameter(title: "Amount (EGP)")
+    var amount: Double
+
+    @Parameter(title: "Note")
+    var note: String?
+
+    func perform() async throws -> some IntentResult {
+        let status = SMSQueue.appendEntry(
+            bank: bank.key, type: kind.rawValue, amount: amount, note: note)
+        SMSQueue.logEvent("addEntry: bank=\(bank.key) type=\(kind.rawValue) result=\(status)")
+        if status == "ok" {
+            await SMSQueue.postEntryNotification()
+        }
+        return .result()
+    }
+}
+
 // MARK: - Queue file
 
 /// Append-only JSON-lines file in Application Support. The Dart side reads the
 /// same location through `getApplicationSupportDirectory()` (path_provider).
 ///
-/// One line per message: {"text": "...", "receivedAt": "<ISO 8601>"}.
+/// One line per entry: {"text": "...", "receivedAt": "<ISO 8601>"} for SMS, or
+/// {"kind": "entry", "bank": "cash", "type": "expense", "amount": 50, ...} for Add Entry.
 /// JSON encoding keeps multi-line SMS bodies on a single line.
 enum SMSQueue {
     static let fileName = "khazna_sms_queue.jsonl"
@@ -53,14 +126,36 @@ enum SMSQueue {
     static func append(_ text: String) -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "emptyText" }
+        return appendPayload([
+            "text": trimmed,
+            "receivedAt": ISO8601DateFormatter().string(from: Date()),
+        ])
+    }
+
+    /// Queues a quick entry:
+    /// {"kind":"entry","bank":"telda","type":"income","amount":20,"note":..,"receivedAt":..}
+    @discardableResult
+    static func appendEntry(bank: String, type: String, amount: Double, note: String?) -> String {
+        guard amount.isFinite, amount > 0, amount < 10_000_000 else {
+            return "badAmount"
+        }
+        var payload: [String: Any] = [
+            "kind": "entry",
+            "bank": bank,
+            "type": type,
+            "amount": amount,
+            "receivedAt": ISO8601DateFormatter().string(from: Date()),
+        ]
+        let n = (note ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !n.isEmpty { payload["note"] = String(n.prefix(120)) }
+        return appendPayload(payload)
+    }
+
+    /// Serialises [payload] as one JSON line and appends it to the queue file.
+    private static func appendPayload(_ payload: [String: Any]) -> String {
         guard let dir = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
         else { return "noSupportDir" }
-
-        let payload: [String: String] = [
-            "text": trimmed,
-            "receivedAt": ISO8601DateFormatter().string(from: Date()),
-        ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let json = String(data: data, encoding: .utf8)
         else { return "jsonEncodeFailed" }
@@ -101,6 +196,19 @@ enum SMSQueue {
             try await UNUserNotificationCenter.current().add(request)
         } catch {
             logEvent("notification failed: \(error.localizedDescription)")
+        }
+    }
+
+    static func postEntryNotification() async {
+        let content = UNMutableNotificationContent()
+        content.title = "Entry saved"
+        content.body = "Open Khazna to add it to your transactions."
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString, content: content, trigger: nil)
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+        } catch {
+            logEvent("entry notification failed: \(error.localizedDescription)")
         }
     }
 
