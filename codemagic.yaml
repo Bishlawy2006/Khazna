@@ -13,7 +13,12 @@ workflows:
       cocoapods: default
     scripts:
       - name: Get Flutter packages
-        script: flutter pub get
+        # Swift Package Manager is switched off so plugins build through
+        # CocoaPods. With SPM on, an unsigned device build can fail with
+        # "requires a development team" (package resource bundles want signing).
+        script: |
+          flutter config --no-enable-swift-package-manager
+          flutter pub get
       - name: Build iOS release without code signing
         script: flutter build ios --release --no-codesign
       - name: Package Runner.app into an .ipa
