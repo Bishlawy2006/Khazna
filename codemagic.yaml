@@ -20,7 +20,15 @@ workflows:
           flutter config --no-enable-swift-package-manager
           flutter pub get
       - name: Build iOS release without code signing
-        script: flutter build ios --release --no-codesign
+        # Verbose output is saved, and on failure the real Xcode error lines are
+        # printed at the end (the default log only shows a generic message).
+        script: |
+          set -o pipefail
+          flutter build ios --release --no-codesign -v 2>&1 | tee build.log || {
+            echo "=== ERROR LINES FROM THE BUILD ==="
+            grep -n -E "error:|Error \(Xcode\)|requires a development team|Signing for|Command .* failed" build.log | head -60
+            exit 1
+          }
       - name: Package Runner.app into an .ipa
         # An .ipa is just a zip containing Payload/<App>.app
         script: |
